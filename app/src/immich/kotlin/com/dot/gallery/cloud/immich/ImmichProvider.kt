@@ -409,9 +409,16 @@ class ImmichProvider @Inject constructor(
     override fun getRemoteAlbumMedia(albumId: String): Flow<Resource<List<CloudMediaEntity>>> = flow {
         try {
             val configId = currentConfig?.id ?: 0L
-            val response = requireApi().getAlbumById(albumId)
+            val body = mapOf<String, Any>(
+                "albumIds" to listOf(albumId),
+                "size" to 1000,
+                "withExif" to true
+            )
+            val response = requireApi().searchAssets(body)
             if (response.isSuccessful) {
-                val entities = response.body()?.assets?.map { it.toCloudMediaEntity(configId, baseUrl) } ?: emptyList()
+                val entities = response.body()?.assets?.items
+                    ?.map { it.toCloudMediaEntity(configId, baseUrl) }
+                    ?: emptyList()
                 emit(Resource.Success(entities))
             } else {
                 emit(Resource.Error("Failed to fetch album media: ${response.code()}"))

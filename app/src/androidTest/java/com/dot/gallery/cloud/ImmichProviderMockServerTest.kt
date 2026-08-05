@@ -197,6 +197,25 @@ class ImmichProviderMockServerTest {
     }
 
     @Test
+    fun getRemoteAlbumMediaSearchesForAssetsInAlbum() = runBlocking {
+        server.dispatcher = dispatcher { req ->
+            if (req.path?.endsWith("/api/search/metadata") == true) json(assetsJson) else null
+        }
+        val config = CloudServerConfig(id = 5, providerType = ProviderType.IMMICH, serverUrl = baseUrl(), apiKey = "KEY")
+        provider.configure(config)
+
+        val resource = provider.getRemoteAlbumMedia("album-1").first()
+
+        assertTrue(resource is Resource.Success)
+        val items = (resource as Resource.Success).data!!
+        assertEquals(listOf("asset-1"), items.map { it.remoteId })
+        assertEquals(5L, items.single().serverConfigId)
+        val request = server.takeRequest()
+        assertTrue(request.path!!.endsWith("/api/search/metadata"))
+        assertTrue(request.body.readUtf8().contains("\"albumIds\":[\"album-1\"]"))
+    }
+
+    @Test
     fun capabilitiesIncludeAllImmichFeatures() {
         val caps = provider.capabilities.map { it.name }.toSet()
         assertNotNull(caps)

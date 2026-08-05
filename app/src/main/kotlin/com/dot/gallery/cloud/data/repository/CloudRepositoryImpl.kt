@@ -25,6 +25,7 @@ import com.dot.gallery.cloud.core.capabilities.RemoteMediaProvider
 import com.dot.gallery.cloud.core.capabilities.ShareLinkCapableProvider
 import com.dot.gallery.cloud.core.capabilities.SmartSearchCapableProvider
 import com.dot.gallery.cloud.core.capabilities.SyncCapableProvider
+import com.dot.gallery.cloud.data.dao.CloudAlbumSyncDao
 import com.dot.gallery.cloud.data.dao.CloudMediaDao
 import com.dot.gallery.cloud.data.entity.CloudMediaEntity
 import com.dot.gallery.cloud.network.ServerUrlResolver
@@ -38,6 +39,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -49,6 +52,7 @@ import javax.inject.Singleton
 class CloudRepositoryImpl @Inject constructor(
     private val registry: ProviderRegistry,
     private val cloudMediaDao: CloudMediaDao,
+    private val albumSyncDao: CloudAlbumSyncDao,
     private val urlResolver: ServerUrlResolver
 ) : CloudRepository {
 
@@ -139,7 +143,23 @@ class CloudRepositoryImpl @Inject constructor(
         if (providers.isEmpty()) return flowOf(Resource.Success(emptyList()))
         CloudTrace.d("Repo.getAllRemoteAlbums from ${providers.size} provider(s)")
         val flows = providers.map { it.getRemoteAlbums() }
-        return combineResources(flows).onEach {
+        return flow {
+            val preferences = albumSyncDao.getAll().first()
+            val configuredServers = preferences.mapTo(HashSet()) { it.serverConfigId }
+            val enabledAlbums = preferences.asSequence()
+                .filter { it.syncEnabled }
+                .mapTo(HashSet()) { Triple(it.serverConfigId, it.providerType, it.albumRemoteId) }
+            emitAll(combineResources(flows).map { resource ->
+                val filtered = resource.data?.filter { album ->
+                    album.serverConfigId !in configuredServers ||
+                        Triple(album.serverConfigId, album.providerType, album.remoteId) in enabledAlbums
+                }
+                when (resource) {
+                    is Resource.Success -> Resource.Success(filtered ?: emptyList())
+                    is Resource.Error -> Resource.Error(resource.message ?: "Unknown error", filtered)
+                }
+            })
+        }.onEach {
             CloudTrace.d("Repo.getAllRemoteAlbums -> ${if (it is Resource.Error) "ERROR ${it.message}" else "${it.data?.size ?: 0} albums"}")
         }
     }

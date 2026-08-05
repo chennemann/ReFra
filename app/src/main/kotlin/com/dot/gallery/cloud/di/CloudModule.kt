@@ -85,7 +85,8 @@ abstract class CloudModule {
         fun provideCloudRepository(
             registry: ProviderRegistry,
             cloudMediaDao: CloudMediaDao,
-            urlResolver: ServerUrlResolver
-        ): CloudRepository = CloudRepositoryImpl(registry, cloudMediaDao, urlResolver)
+            albumSyncDao: CloudAlbumSyncDao,
+            urlResolver: ServerUrlResolver,
+        ): CloudRepository = CloudRepositoryImpl(registry, cloudMediaDao, albumSyncDao, urlResolver)
     }
 }
