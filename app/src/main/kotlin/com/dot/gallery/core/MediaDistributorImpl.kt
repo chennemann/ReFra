@@ -67,9 +67,11 @@ import com.dot.gallery.feature_node.presentation.util.mediaFlow
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.provider.MediaStore
 import com.dot.gallery.core.metrics.StartupTracer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -306,9 +308,12 @@ class MediaDistributorImpl @Inject constructor(
 
     private val _cloudAlbumsFlow = MutableStateFlow<List<CloudAlbum>>(emptyList())
     private val _cloudAlbumMemberRemoteIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _cloudAlbumMembershipReady = MutableStateFlow(false)
+    private var cloudAlbumMembershipJob: Job? = null
 
     companion object {
         private const val UNSORTED_ALBUM_SENTINEL = "__unsorted__"
+        private const val CLOUD_ALBUM_MEMBERSHIP_DELAY_MS = 5_000L
     }
 
     // Eagerly load cached cloud media so the timeline can merge them.
@@ -359,7 +364,10 @@ class MediaDistributorImpl @Inject constructor(
                 if (hasConnected) {
                     refreshCloudData()
                 } else {
+                    cloudAlbumMembershipJob?.cancel()
                     _cloudAlbumsFlow.value = emptyList()
+                    _cloudAlbumMemberRemoteIds.value = emptySet()
+                    _cloudAlbumMembershipReady.value = false
                 }
             }
         }
@@ -382,6 +390,9 @@ class MediaDistributorImpl @Inject constructor(
     }
 
     private suspend fun refreshCloudData() {
+        cloudAlbumMembershipJob?.cancel()
+        _cloudAlbumMemberRemoteIds.value = emptySet()
+        _cloudAlbumMembershipReady.value = false
         try {
             cloudRepository.getAllRemoteAlbums().collect { resource ->
                 when (resource) {
@@ -397,10 +408,20 @@ class MediaDistributorImpl @Inject constructor(
         // real item count.
         try {
             val albums = _cloudAlbumsFlow.value
+            if (albums.isEmpty()) {
+                _cloudAlbumMembershipReady.value = true
+                return
+            }
+            val albumsNeedingEnrichment = albums.filter {
+                it.thumbnailAssetId == null || it.assetCount == 0
+            }
+            val deferredAlbums = albums.filterNot {
+                it.thumbnailAssetId == null || it.assetCount == 0
+            }
             val memberIds = HashSet<String>()
-            val enriched = ArrayList<CloudAlbum>(albums.size)
+            val enriched = ArrayList<CloudAlbum>(albumsNeedingEnrichment.size)
             var didEnrich = false
-            for (album in albums) {
+            for (album in albumsNeedingEnrichment) {
                 val resource = cloudRepository.getAlbumMedia(album.providerType, album.remoteId).first()
                 val media = if (resource is Resource.Success) resource.data ?: emptyList() else emptyList()
                 media.forEach { memberIds.add(it.remoteId) }
@@ -427,11 +448,31 @@ class MediaDistributorImpl @Inject constructor(
                 enriched.add(updated)
             }
             _cloudAlbumMemberRemoteIds.value = memberIds
-            if (didEnrich) _cloudAlbumsFlow.value = enriched
-        } catch (_: Exception) { }
-        // Fetch trashed items into cache so the trash screen has cloud data
-        try {
-            cloudRepository.getRemoteTrashed().first()
+            if (didEnrich) _cloudAlbumsFlow.value = enriched + deferredAlbums
+            if (deferredAlbums.isEmpty()) {
+                _cloudAlbumMembershipReady.value = true
+                return
+            }
+            cloudAlbumMembershipJob = appScope.launch {
+                delay(CLOUD_ALBUM_MEMBERSHIP_DELAY_MS)
+                try {
+                    val deferredMemberIds = HashSet<String>()
+                    for (album in deferredAlbums) {
+                        val resource = cloudRepository
+                            .getAlbumMedia(album.providerType, album.remoteId)
+                            .first()
+                        if (resource is Resource.Success) {
+                            resource.data.orEmpty().forEach { deferredMemberIds.add(it.remoteId) }
+                        }
+                    }
+                    _cloudAlbumMemberRemoteIds.value = memberIds + deferredMemberIds
+                    _cloudAlbumMembershipReady.value = true
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) { }
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) { }
     }
 
@@ -464,8 +505,10 @@ class MediaDistributorImpl @Inject constructor(
      */
     private val _unsortedCloudAlbumsFlow: StateFlow<List<Album>> = combine(
         _cloudCachedMedia,
-        _cloudAlbumMemberRemoteIds
-    ) { cachedMedia, memberIds ->
+        _cloudAlbumMemberRemoteIds,
+        _cloudAlbumMembershipReady
+    ) { cachedMedia, memberIds, membershipReady ->
+        if (!membershipReady) return@combine emptyList()
         if (cachedMedia.isEmpty()) return@combine emptyList()
         // Group cached media by provider (derive provider from URI authority)
         val byProvider = cachedMedia.groupBy { media ->

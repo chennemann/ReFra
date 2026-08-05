@@ -5,6 +5,7 @@
 
 package com.dot.gallery.cloud.di
 
+import android.content.Context
 import com.dot.gallery.cloud.core.CloudRuntimeSettings
 import com.dot.gallery.cloud.core.ConnectionState
 import com.dot.gallery.cloud.core.CredentialEncryptor
@@ -20,8 +21,10 @@ import com.dot.gallery.cloud.network.ServerUrlResolver
 import com.dot.gallery.cloud.sync.CloudIndexProgressManager
 import com.dot.gallery.core.Resource
 import com.dot.gallery.feature_node.presentation.util.printDebug
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
@@ -39,6 +42,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class CloudProviderInitializer @Inject constructor(
+    @ApplicationContext context: Context,
     private val providerFactories: Set<@JvmSuppressWildcards ProviderInstanceFactory>,
     private val registry: ProviderRegistry,
     private val configDao: CloudServerConfigDao,
@@ -48,6 +52,11 @@ class CloudProviderInitializer @Inject constructor(
     private val urlResolver: ServerUrlResolver,
     private val indexProgressManager: CloudIndexProgressManager
 ) {
+
+    private val prefetchPreferences = context.getSharedPreferences(
+        PREFETCH_PREFERENCES,
+        Context.MODE_PRIVATE
+    )
 
     private val factoriesByType by lazy { providerFactories.associateBy { it.providerType } }
 
@@ -66,14 +75,40 @@ class CloudProviderInitializer @Inject constructor(
     private val reconfigureScope = CoroutineScope(Dispatchers.IO)
 
     /**
-     * Pages through ALL of [provider]'s remote assets (and its trash) and caches them into
-     * Room, non-blocking. This is what makes a provider's media appear in the timeline/albums.
-     * Runs for BOTH startup auto-auth and runtime account registration so a freshly added
-     * account populates immediately instead of only after the next app start.
+     * Pages through [provider]'s remote assets (and its trash), non-blocking. Providers own
+     * persistence of the returned rows; writing them again here caused duplicate Room
+     * invalidations and repeated timeline rebuilds.
+     *
+     * Newly registered/reconfigured accounts populate immediately. Startup auto-auth uses the
+     * cached rows first, skips a recent index attempt, and delays a stale index until the UI
+     * has had time to render.
      */
-    private fun prefetchProviderData(provider: RemoteMediaProvider, label: String, configId: Long) {
+    private fun prefetchProviderData(
+        provider: RemoteMediaProvider,
+        label: String,
+        configId: Long,
+        isStartup: Boolean = false
+    ) {
         prefetchScope.launch {
+            if (isStartup) {
+                val cachedCount = cloudMediaDao.countByConfig(configId)
+                val lastRefresh = prefetchPreferences.getLong(refreshKey(configId), 0L)
+                val now = System.currentTimeMillis()
+                if (!shouldRefreshCloudIndex(cachedCount, lastRefresh, now)) {
+                    printDebug("CloudProviderInitializer: Using recent cache for $label ($cachedCount assets)")
+                    return@launch
+                }
+                if (cachedCount > 0) {
+                    // Mark the attempt before waiting/network I/O. This coalesces rapid relaunches
+                    // and prevents an unavailable server from starting another timeout-heavy full
+                    // index on every launch; an empty cache still retries immediately.
+                    prefetchPreferences.edit().putLong(refreshKey(configId), now).apply()
+                    delay(WARM_CACHE_PREFETCH_DELAY_MS)
+                }
+            }
+
             indexProgressManager.start(configId, label)
+            var completed = false
             try {
                 var page = 0
                 var total = 0
@@ -82,29 +117,33 @@ class CloudProviderInitializer @Inject constructor(
                     if (resource !is Resource.Success) break
                     val items = resource.data ?: emptyList()
                     if (items.isNotEmpty()) {
-                        cloudMediaDao.insertAll(items)
                         total += items.size
                         indexProgressManager.update(configId, total, label)
                     }
-                    if (items.size < PREFETCH_PAGE_SIZE) break
+                    if (items.size < PREFETCH_PAGE_SIZE) {
+                        completed = true
+                        break
+                    }
                     page++
-                    if (page >= MAX_PREFETCH_PAGES) break
+                    if (page >= MAX_PREFETCH_PAGES) {
+                        completed = true
+                        break
+                    }
+                }
+                if (completed) {
+                    prefetchPreferences.edit()
+                        .putLong(refreshKey(configId), System.currentTimeMillis())
+                        .apply()
                 }
                 printDebug("CloudProviderInitializer: Cached $total assets for $label")
+
+                // Keep this in the same background task instead of issuing another simultaneous
+                // startup request. Providers persist fetched trash just like normal assets.
+                provider.getRemoteTrashed().first()
             } catch (e: Exception) {
                 printDebug("CloudProviderInitializer: Asset prefetch failed for $label: ${e.message}")
             } finally {
                 indexProgressManager.finish(configId)
-            }
-        }
-        prefetchScope.launch {
-            try {
-                val trashed = provider.getRemoteTrashed().first()
-                if (trashed is Resource.Success) {
-                    trashed.data?.let { cloudMediaDao.insertAll(it) }
-                }
-            } catch (e: Exception) {
-                printDebug("CloudProviderInitializer: Trash prefetch failed for $label: ${e.message}")
             }
         }
     }
@@ -179,7 +218,12 @@ class CloudProviderInitializer @Inject constructor(
                 cloudRepository.notifyProviderConnected(entity.providerType, ConnectionState.CONNECTED)
                 printDebug("CloudProviderInitializer: Auto-authenticated ${entity.providerType} #${entity.id} with ${resolved.serverUrl}")
                 // Proactive cache: fetch fresh data from network in parallel (non-blocking).
-                prefetchProviderData(provider, entity.displayName.ifBlank { entity.providerType.displayName }, entity.id)
+                prefetchProviderData(
+                    provider,
+                    entity.displayName.ifBlank { entity.providerType.displayName },
+                    entity.id,
+                    isStartup = true
+                )
             } catch (e: Exception) {
                 printDebug("CloudProviderInitializer: Auto-auth failed for ${entity.providerType} #${entity.id}: ${e.message}")
             }
@@ -253,6 +297,15 @@ class CloudProviderInitializer @Inject constructor(
     }
 
     companion object {
+        private const val PREFETCH_PREFERENCES = "cloud_index_refresh"
+        private const val REFRESH_KEY_PREFIX = "last_refresh_"
+
+        /** Avoid re-indexing the entire remote library on every warm app launch. */
+        internal const val CLOUD_INDEX_REFRESH_INTERVAL_MS = 30 * 60 * 1000L
+
+        /** Let cached media render and interaction settle before a stale background index. */
+        private const val WARM_CACHE_PREFETCH_DELAY_MS = 5_000L
+
         /** Page size for the startup asset prefetch. */
         private const val PREFETCH_PAGE_SIZE = 200
 
@@ -261,5 +314,15 @@ class CloudProviderInitializer @Inject constructor(
          * returns a short page). 500 pages * 200 = 100k assets, well beyond typical libraries.
          */
         private const val MAX_PREFETCH_PAGES = 500
+
+        private fun refreshKey(configId: Long) = "$REFRESH_KEY_PREFIX$configId"
     }
 }
+
+internal fun shouldRefreshCloudIndex(
+    cachedCount: Int,
+    lastRefreshMillis: Long,
+    nowMillis: Long
+): Boolean = cachedCount == 0 ||
+    lastRefreshMillis <= 0L ||
+    nowMillis - lastRefreshMillis >= CloudProviderInitializer.CLOUD_INDEX_REFRESH_INTERVAL_MS
