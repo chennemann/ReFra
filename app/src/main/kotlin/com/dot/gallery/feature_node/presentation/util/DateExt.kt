@@ -284,6 +284,7 @@ class DateGrouper(
     private val currentYear: Int
     private val todayStartMillis: Long
     private val reusableCal: Calendar = Calendar.getInstance(locale)
+    private val classificationByDay = HashMap<Int, String>()
 
     init {
         val now = System.currentTimeMillis()
@@ -301,6 +302,8 @@ class DateGrouper(
         reusableCal.timeInMillis = millis
         // Truncate to day start for day-difference calculation
         val mediaYear = reusableCal.get(Calendar.YEAR)
+        val dayKey = mediaYear * 512 + reusableCal.get(Calendar.DAY_OF_YEAR)
+        classificationByDay[dayKey]?.let { return it }
         reusableCal.set(Calendar.HOUR_OF_DAY, 0)
         reusableCal.set(Calendar.MINUTE, 0)
         reusableCal.set(Calendar.SECOND, 0)
@@ -317,7 +320,7 @@ class DateGrouper(
                     DateFormat.format(extendedFormat, reusableCal).toString()
                 } else DateFormat.format(format, reusableCal).toString()
             }
-        }
+        }.also { classificationByDay[dayKey] = it }
     }
 }
 

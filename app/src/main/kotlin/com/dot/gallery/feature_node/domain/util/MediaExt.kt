@@ -356,11 +356,7 @@ private val BURST_PATTERNS = listOf(
 private val PIXEL_SUFFIX_REGEX = Regex("\\.(ORIGINAL|RAW-\\d+|NIGHT|PORTRAIT|LONG_EXPOSURE|MP|MOTION-\\d+|PANO|TOP|BOTTOM|COVER|BURST\\d*)", RegexOption.IGNORE_CASE)
 private val COPY_PARENS_REGEX = Regex("\\(\\d+\\)$")
 private val COPY_TILDE_REGEX = Regex("~\\d+$")
-private val EDITED_UNDERSCORE_REGEX = Regex("_edited$", RegexOption.IGNORE_CASE)
-private val EDITED_DASH_REGEX = Regex("-edited$", RegexOption.IGNORE_CASE)
-private val COVER_SUFFIX_REGEX = Regex("_COVER$", RegexOption.IGNORE_CASE)
 private val BURST_SUFFIX_REGEX = Regex("_BURST\\d*$", RegexOption.IGNORE_CASE)
-private val HDR_SUFFIX_REGEX = Regex("_HDR$", RegexOption.IGNORE_CASE)
 
 /**
  * Extracts the base filename used for grouping related media.
@@ -380,28 +376,31 @@ val Media.groupBaseName: String
         // Strip the file extension
         val nameWithoutExt = label.substringBeforeLast(".")
         // Try manufacturer-specific burst patterns first
-        for (pattern in BURST_PATTERNS) {
+        val candidatePatterns = when {
+            nameWithoutExt.startsWith("IMG_") && "_BURST" in nameWithoutExt -> BURST_PATTERNS.subList(0, 1)
+            nameWithoutExt.firstOrNull()?.isDigit() == true -> BURST_PATTERNS.subList(1, 2)
+            nameWithoutExt.startsWith("DSC") && "_BURST" in nameWithoutExt -> BURST_PATTERNS.subList(2, 3)
+            else -> emptyList()
+        }
+        for (pattern in candidatePatterns) {
             val match = pattern.matchEntire(nameWithoutExt)
             if (match != null) {
                 return match.groups["key"]?.value ?: nameWithoutExt
             }
         }
         // Fall back to generic suffix stripping for RAW pairs, edits, etc.
-        return nameWithoutExt
-            // Pixel-style dot-separated suffixes
-            .replace(PIXEL_SUFFIX_REGEX, "")
-            // Copy / duplicate suffixes
-            .replace(COPY_PARENS_REGEX, "")           // (1), (2), etc.
-            .replace(COPY_TILDE_REGEX, "")                 // ~2, ~3, etc.
-            // Edit suffixes
-            .replace(EDITED_UNDERSCORE_REGEX, "")
-            .replace(EDITED_DASH_REGEX, "")
-            // Burst / cover suffixes (generic, after manufacturer-specific failed)
-            .replace(COVER_SUFFIX_REGEX, "")
-            .replace(BURST_SUFFIX_REGEX, "")
-            // HDR suffix
-            .replace(HDR_SUFFIX_REGEX, "")
-            .trim()
+        var result = nameWithoutExt
+        // Most filenames have none of these suffixes. Guard the regexes so the common path only
+        // performs cheap character/string checks instead of seven regex replacements per item.
+        if ('.' in result) result = result.replace(PIXEL_SUFFIX_REGEX, "")
+        if (result.endsWith(')')) result = result.replace(COPY_PARENS_REGEX, "")
+        if ('~' in result) result = result.replace(COPY_TILDE_REGEX, "")
+        if (result.endsWith("_edited", ignoreCase = true)) result = result.dropLast(7)
+        if (result.endsWith("-edited", ignoreCase = true)) result = result.dropLast(7)
+        if (result.endsWith("_COVER", ignoreCase = true)) result = result.dropLast(6)
+        if (result.contains("_BURST", ignoreCase = true)) result = result.replace(BURST_SUFFIX_REGEX, "")
+        if (result.endsWith("_HDR", ignoreCase = true)) result = result.dropLast(4)
+        return result.trim()
     }
 
 /**

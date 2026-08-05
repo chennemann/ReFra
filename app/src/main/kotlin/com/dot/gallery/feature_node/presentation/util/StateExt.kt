@@ -34,6 +34,8 @@ import com.dot.gallery.feature_node.domain.util.sortedByRepresentative
 import com.dot.gallery.feature_node.presentation.mediaview.rememberedDerivedState
 import com.dot.gallery.feature_node.presentation.picker.AllowedMedia
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.conflate
@@ -41,6 +43,26 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * Timeline mapping is CPU-bound. Keep it off Dispatchers.IO (whose elastic parallelism can let
+ * timeline/favorites/trash mappings saturate every core at once) and serialize the work so the UI
+ * thread retains enough CPU to render frames while a large library is being grouped.
+ */
+private val mediaMappingDispatcher = Dispatchers.Default.limitedParallelism(1)
+
+internal enum class MediaMappingLayout { NORMAL, MONTHLY, YEARLY, NONE }
+
+internal fun resolveMediaMappingLayout(
+    groupByMonth: Boolean,
+    groupByYear: Boolean,
+    withMonthHeader: Boolean
+): MediaMappingLayout = when {
+    groupByYear && withMonthHeader -> MediaMappingLayout.YEARLY
+    groupByMonth && withMonthHeader -> MediaMappingLayout.MONTHLY
+    !groupByMonth && !groupByYear -> MediaMappingLayout.NORMAL
+    else -> MediaMappingLayout.NONE
+}
 
 @Composable
 fun <T: Media> selectedMedia(
@@ -197,13 +219,16 @@ suspend fun <T : Media> mapMediaToItem(
     defaultDateFormat: String,
     extendedDateFormat: String,
     weeklyDateFormat: String
-) = withContext(Dispatchers.IO) {
+) = withContext(mediaMappingDispatcher) {
+    val mappingLayout = resolveMediaMappingLayout(groupByMonth, groupByYear, withMonthHeader)
+    val buildNormal = mappingLayout == MediaMappingLayout.NORMAL
+    val buildMonthly = mappingLayout == MediaMappingLayout.MONTHLY
+    val buildYearly = mappingLayout == MediaMappingLayout.YEARLY
     val estimatedSize = data.size + (data.size / 20) // ~1 header per 20 items
-    val mappedData = ArrayList<MediaItem<T>>(estimatedSize)
-    val mappedDataWithMonthly = if (withMonthHeader) ArrayList<MediaItem<T>>(estimatedSize) else mutableListOf()
-    val mappedDataWithYearly = if (withMonthHeader) ArrayList<MediaItem<T>>(estimatedSize) else mutableListOf()
+    val mappedData = if (buildNormal) ArrayList<MediaItem<T>>(estimatedSize) else null
+    val mappedDataWithMonthly = if (buildMonthly) ArrayList<MediaItem<T>>(estimatedSize) else null
+    val mappedDataWithYearly = if (buildYearly) ArrayList<MediaItem<T>>(estimatedSize) else null
     val monthHeaderList = HashSet<String>()
-    val yearHeaderList = HashSet<String>()
     val headers = ArrayList<MediaItem.Header<T>>(estimatedSize / 20 + 1)
     val pagerMediaList = if (groupSimilarMedia) ArrayList<T>(data.size) else mutableListOf()
     val mediaGroupsMap = if (groupSimilarMedia) HashMap<Long, List<T>>() else mutableMapOf()
@@ -218,7 +243,9 @@ suspend fun <T : Media> mapMediaToItem(
         stringToday = "Today",
         stringYesterday = "Yesterday"
     ) else null
+    val coroutineContext = currentCoroutineContext()
     val groupedData = data.groupBy {
+        coroutineContext.ensureActive()
         when {
             groupByYear -> it.definedTimestamp.getYear()
             groupByMonth -> it.definedTimestamp.getMonth()
@@ -227,6 +254,7 @@ suspend fun <T : Media> mapMediaToItem(
     }
     val hasCloudOverrides = cloudGroupKeyOverrides.isNotEmpty()
     groupedData.forEach { (date, data) ->
+        coroutineContext.ensureActive()
         val dateHeader = MediaItem.Header<T>("header_$date", date, data.mapTo(HashSet(data.size)) { it.id })
         headers.add(dateHeader)
         val groupedMedia = if (groupSimilarMedia) {
@@ -237,6 +265,7 @@ suspend fun <T : Media> mapMediaToItem(
                 data.groupBy { it.groupKey }
             }
             groups.values.flatMap { group ->
+                coroutineContext.ensureActive()
                 if (group.size > 1) {
                     val groupType = group.classifyGroupType()
                     if (groupType in enabledGroupTypes) {
@@ -266,61 +295,35 @@ suspend fun <T : Media> mapMediaToItem(
                 MediaItem.MediaViewItem("media_${it.id}_${it.label}", it)
             }
         }
-        if (groupByYear) {
-            mappedData.add(dateHeader)
-            mappedData.addAll(groupedMedia)
-            mappedDataWithYearly.add(dateHeader)
-            mappedDataWithYearly.addAll(groupedMedia)
-        } else if (groupByMonth) {
-            mappedData.add(dateHeader)
-            mappedData.addAll(groupedMedia)
-            mappedDataWithMonthly.add(dateHeader)
-            mappedDataWithMonthly.addAll(groupedMedia)
-        } else {
-            val month = getMonth(
-                defaultFormat = defaultDateFormat,
-                extendedFormat = extendedDateFormat,
-                date = date
-            )
-            if (month.isNotEmpty() && !monthHeaderList.contains(month)) {
-                monthHeaderList.add(month)
-                val bigMonthHeader = MediaItem.Header<T>(
-                    "header_big_${month}_${data.size}",
-                    month,
-                    dateHeader.data
-                )
-                if (mappedData.isNotEmpty()) {
-                    mappedData.add(bigMonthHeader)
-                }
-                if (withMonthHeader && mappedDataWithMonthly.isNotEmpty()) {
-                    mappedDataWithMonthly.add(bigMonthHeader)
-                }
+        when {
+            buildYearly -> {
+                mappedDataWithYearly!!.add(dateHeader)
+                mappedDataWithYearly.addAll(groupedMedia)
             }
-            mappedData.add(dateHeader)
-            if (withMonthHeader) {
-                mappedDataWithMonthly.add(dateHeader)
-            }
-            mappedData.addAll(groupedMedia)
-            if (withMonthHeader) {
+            buildMonthly -> {
+                mappedDataWithMonthly!!.add(dateHeader)
                 mappedDataWithMonthly.addAll(groupedMedia)
             }
-        }
-        if (!groupByYear && withMonthHeader) {
-            val year = data.firstOrNull()?.definedTimestamp?.getYear() ?: ""
-            if (year.isNotEmpty() && !yearHeaderList.contains(year)) {
-                yearHeaderList.add(year)
-                if (mappedDataWithYearly.isNotEmpty()) {
-                    mappedDataWithYearly.add(
-                        MediaItem.Header(
-                            "header_big_${year}_${data.size}",
-                            year,
-                            dateHeader.data
-                        )
+            buildNormal -> {
+                val month = getMonth(
+                    defaultFormat = defaultDateFormat,
+                    extendedFormat = extendedDateFormat,
+                    date = date
+                )
+                if (month.isNotEmpty() && !monthHeaderList.contains(month)) {
+                    monthHeaderList.add(month)
+                    val bigMonthHeader = MediaItem.Header<T>(
+                        "header_big_${month}_${data.size}",
+                        month,
+                        dateHeader.data
                     )
+                    if (mappedData!!.isNotEmpty()) {
+                        mappedData.add(bigMonthHeader)
+                    }
                 }
+                mappedData!!.add(dateHeader)
+                mappedData.addAll(groupedMedia)
             }
-            mappedDataWithYearly.add(dateHeader)
-            mappedDataWithYearly.addAll(groupedMedia)
         }
     }
     MediaState(
@@ -330,9 +333,9 @@ suspend fun <T : Media> mapMediaToItem(
         pagerMedia = (if (groupSimilarMedia) pagerMediaList else data).distinctBy { it.id },
         mediaGroups = mediaGroupsMap,
         headers = headers,
-        mappedMedia = mappedData,
-        mappedMediaWithMonthly = if (withMonthHeader) mappedDataWithMonthly else emptyList(),
-        mappedMediaWithYearly = if (withMonthHeader) mappedDataWithYearly else emptyList(),
+        mappedMedia = mappedData ?: emptyList(),
+        mappedMediaWithMonthly = mappedDataWithMonthly ?: emptyList(),
+        mappedMediaWithYearly = mappedDataWithYearly ?: emptyList(),
         cloudBackups = cloudBackups,
         dateHeader = data.dateHeader(albumId)
     )

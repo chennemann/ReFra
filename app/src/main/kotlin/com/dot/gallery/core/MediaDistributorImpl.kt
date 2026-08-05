@@ -78,6 +78,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
@@ -737,7 +738,12 @@ class MediaDistributorImpl @Inject constructor(
      * Media
      */
     override val timelineMediaFlow: SharedFlow<MediaState<Media.UriMedia>> =
-        mediaFlow(-1L, null, triggerDatabaseUpdate = true)
+        mediaFlow(
+            albumId = -1L,
+            target = null,
+            triggerDatabaseUpdate = true,
+            started = prioritySharingMethod
+        )
 
     private val albumTimelineCache = ConcurrentHashMap<Long, StateFlow<MediaState<Media.UriMedia>>>()
 
@@ -935,7 +941,12 @@ class MediaDistributorImpl @Inject constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Suppress("UNCHECKED_CAST")
-    private fun mediaFlow(albumId: Long, target: String?, triggerDatabaseUpdate: Boolean = false): SharedFlow<MediaState<Media.UriMedia>> {
+    private fun mediaFlow(
+        albumId: Long,
+        target: String?,
+        triggerDatabaseUpdate: Boolean = false,
+        started: SharingStarted = sharingMethod
+    ): SharedFlow<MediaState<Media.UriMedia>> {
         val tag = when {
             target == Constants.Target.TARGET_FAVORITES -> "favorites"
             target == Constants.Target.TARGET_TRASH -> "trash"
@@ -976,7 +987,9 @@ class MediaDistributorImpl @Inject constructor(
                 .onEach { StartupTracer.begin("$tag.dep.enabledGroupTypes(${it.size})").also { s -> StartupTracer.end(s) } },
             cloudMediaSource
                 .onEach { StartupTracer.begin("$tag.dep.cloudMedia(${it.size})").also { s -> StartupTracer.end(s) } }
-        ) { values ->
+        ) { values -> values.toList() }
+        .conflate()
+        .mapLatest mapping@ { values ->
             combineEmissionCount++
             val combineSpan = StartupTracer.begin("$tag.combine_body(#$combineEmissionCount)")
             val result = values[0] as Resource<List<Media.UriMedia>>
@@ -998,7 +1011,7 @@ class MediaDistributorImpl @Inject constructor(
             
             if (result is Resource.Error) {
                 StartupTracer.end(combineSpan)
-                return@combine MediaState(
+                return@mapping MediaState<Media.UriMedia>(
                     error = result.message ?: "",
                     isLoading = false
                 )
@@ -1026,24 +1039,36 @@ class MediaDistributorImpl @Inject constructor(
             // indicator and the viewer's backup sheet. Cloud-only items still get their tile.
             // When the setting is off, cloud and local items are shown side by side (no skip).
             val cloudBackups: Map<Long, List<Media.UriMedia>>
+            val groupingKeys = if (shouldGroupSimilar) {
+                HashMap<Long, String>(data.size + cloudMedia.size)
+            } else null
             if ((isMainTimeline || isFavorites || isTrash) && cloudMedia.isNotEmpty()) {
                 if (MediaGroupType.CLOUD_LOCAL in groupTypes) {
                     val localByBasename = HashMap<String, Long>(data.size)
                     for (m in data) {
-                        if (!m.isCloud) localByBasename.putIfAbsent(m.cloudGroupKey, m.id)
+                        if (!m.isCloud) {
+                            val baseName = m.cloudGroupKey
+                            localByBasename.putIfAbsent(baseName, m.id)
+                            groupingKeys?.put(m.id, "${m.relativePath}/$baseName")
+                        }
                     }
                     val backups = HashMap<Long, MutableList<Media.UriMedia>>()
                     for (c in cloudMedia) {
-                        val localId = localByBasename[c.cloudGroupKey]
+                        val baseName = c.cloudGroupKey
+                        val localId = localByBasename[baseName]
                         if (localId != null) {
                             backups.getOrPut(localId) { ArrayList(1) }.add(c)
                         } else {
                             data.add(c)
+                            groupingKeys?.put(c.id, "cloud_match/$baseName")
                         }
                     }
                     cloudBackups = backups
                 } else {
                     data.addAll(cloudMedia)
+                    if (groupingKeys != null) {
+                        for (media in data) groupingKeys[media.id] = media.groupKey
+                    }
                     cloudBackups = emptyMap()
                 }
             } else {
@@ -1058,6 +1083,7 @@ class MediaDistributorImpl @Inject constructor(
                 groupByYear = settings?.groupTimelineByYear == true,
                 groupSimilarMedia = shouldGroupSimilar,
                 enabledGroupTypes = groupTypes,
+                cloudGroupKeyOverrides = groupingKeys ?: emptyMap(),
                 cloudBackups = cloudBackups,
                 defaultDateFormat = defaultDateFormat,
                 extendedDateFormat = extendedDateFormat,
@@ -1096,7 +1122,7 @@ class MediaDistributorImpl @Inject constructor(
         it
     }.shareIn(
         scope = appScope,
-        started = prioritySharingMethod,
+        started = started,
         replay = 1
     )
     }
