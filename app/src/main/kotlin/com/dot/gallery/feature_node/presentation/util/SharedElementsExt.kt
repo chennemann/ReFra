@@ -6,7 +6,6 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.dot.gallery.core.Settings
 import com.dot.gallery.feature_node.domain.model.Album
@@ -64,11 +63,9 @@ private fun Modifier.mediaSharedElement(
     animatedVisibilityScope: AnimatedVisibilityScope
 ): Modifier = with(namedSharedTransitionScope) {
     val shouldAnimate by Settings.Misc.rememberSharedElements()
-    val boundsModifier = sharedBounds(
+    if (!shouldAnimate || !allowAnimation) return@with Modifier
+    sharedBounds(
         sharedContentState = rememberSharedContentState(key = key),
         animatedVisibilityScope = animatedVisibilityScope
     )
-    return remember(shouldAnimate, allowAnimation) {
-        if (shouldAnimate && allowAnimation) boundsModifier else Modifier
-    }
 }

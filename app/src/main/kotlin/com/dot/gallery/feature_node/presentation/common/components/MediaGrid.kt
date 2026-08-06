@@ -287,8 +287,15 @@ private fun <T : Media> GridPinchZoomScope.MediaGridContentWithHeaders(
         val favoriteIconPosition by rememberFavoriteIconPosition()
         val cloudSyncStates by LocalMediaDistributor.current.cloudSyncStates.collectAsStateWithLifecycle()
         val cloudBackedUpIds by rememberedDerivedState(mediaState.value) { mediaState.value.cloudBackups.keys }
-        val cellState = remember(isSelectionActive, selectedMedia.value, favoriteIconPosition, cloudSyncStates, cloudBackedUpIds) {
-            MediaCellState(isSelectionActive, selectedMedia.value, favoriteIconPosition, cloudSyncStates, cloudBackedUpIds)
+        val cellState = remember(isSelectionActive, selectedMedia.value, favoriteIconPosition, cloudSyncStates, cloudBackedUpIds, isScrolling) {
+            MediaCellState(
+                selectionActive = isSelectionActive,
+                selectedMedia = selectedMedia.value,
+                favoriteIconPosition = favoriteIconPosition,
+                cloudSyncStates = cloudSyncStates,
+                cloudBackedUpIds = cloudBackedUpIds,
+                isScrolling = isScrolling
+            )
         }
         CompositionLocalProvider(LocalMediaCellState provides cellState) {
         LazyVerticalGrid(
@@ -455,8 +462,14 @@ private fun <T : Media> GridPinchZoomScope.MediaGridContent(
     val selectedMedia = selector.selectedMedia.collectAsStateWithLifecycle()
     val favoriteIconPosition by rememberFavoriteIconPosition()
     val cloudSyncStates by LocalMediaDistributor.current.cloudSyncStates.collectAsStateWithLifecycle()
-    val cellState = remember(selectionActive, selectedMedia.value, favoriteIconPosition, cloudSyncStates) {
-        MediaCellState(selectionActive, selectedMedia.value, favoriteIconPosition, cloudSyncStates)
+    val cellState = remember(selectionActive, selectedMedia.value, favoriteIconPosition, cloudSyncStates, isScrolling) {
+        MediaCellState(
+            selectionActive = selectionActive,
+            selectedMedia = selectedMedia.value,
+            favoriteIconPosition = favoriteIconPosition,
+            cloudSyncStates = cloudSyncStates,
+            isScrolling = isScrolling
+        )
     }
 
     CompositionLocalProvider(LocalMediaCellState provides cellState) {

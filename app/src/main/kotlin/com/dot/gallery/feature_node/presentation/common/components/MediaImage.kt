@@ -35,11 +35,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -89,6 +92,8 @@ data class MediaCellState(
     val cloudSyncStates: Map<Long, SyncState>,
     /** Local media ids that have at least one cloud backup (shows a small backup indicator). */
     val cloudBackedUpIds: Set<Long> = emptySet(),
+    /** Defer first-time network thumbnail work for transient cells during a fling. */
+    val isScrolling: Boolean = false,
 )
 
 /** Null by default: callers that don't provide it (search, picker) fall back to per-cell collection. */
@@ -162,6 +167,15 @@ fun <T : Media> MediaImage(
         RoundedCornerShape(selectedShapeSize)
     }
     val context = LocalContext.current
+    var cloudThumbnailRequested by remember(media.id) {
+        mutableStateOf(!media.isCloud || cellState?.isScrolling != true)
+    }
+    if (!cloudThumbnailRequested && cellState?.isScrolling != true) {
+        LaunchedEffect(media.id) {
+            cloudThumbnailRequested = true
+        }
+    }
+    val imageModel = if (cloudThumbnailRequested) media.getUri() else null
 
     Box(
         modifier = Modifier
@@ -226,7 +240,7 @@ fun <T : Media> MediaImage(
                     shape = roundedShape,
                     color = strokeColor
                 ),
-            model = media.getUri(),
+            model = imageModel,
             contentDescription = media.label,
             contentScale = ContentScale.Crop,
             signature = media

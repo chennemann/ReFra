@@ -374,8 +374,14 @@ fun <T : Media> MosaicMediaGrid(
         bottomContent()
         val favoriteIconPosition by rememberFavoriteIconPosition()
         val cloudSyncStates by LocalMediaDistributor.current.cloudSyncStates.collectAsStateWithLifecycle()
-        val cellState = remember(isSelectionActive, selectedMedia.value, favoriteIconPosition, cloudSyncStates) {
-            MediaCellState(isSelectionActive, selectedMedia.value, favoriteIconPosition, cloudSyncStates)
+        val cellState = remember(isSelectionActive, selectedMedia.value, favoriteIconPosition, cloudSyncStates, scrolling) {
+            MediaCellState(
+                selectionActive = isSelectionActive,
+                selectedMedia = selectedMedia.value,
+                favoriteIconPosition = favoriteIconPosition,
+                cloudSyncStates = cloudSyncStates,
+                isScrolling = scrolling
+            )
         }
         CompositionLocalProvider(LocalMediaCellState provides cellState) {
         LazyVerticalGrid(
