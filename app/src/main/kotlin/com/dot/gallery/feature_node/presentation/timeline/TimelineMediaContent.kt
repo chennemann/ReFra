@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SearchBarDefaults
@@ -94,11 +93,10 @@ fun TimelineMediaContent(
     val timelineGroupByDate by rememberTimelineGroupByDate()
     val timelineGroupMethod by rememberTimelineGroupMethod()
     val isMosaicLayout = timelineLayoutType == Settings.Misc.LAYOUT_MOSAIC && timelineGroupByDate
-    val cacheWindow = remember { LazyLayoutCacheWindow(aheadFraction = 2f, behindFraction = 2f) }
     val pinchState = rememberGridPinchZoomState(
         cellsList = cellsList,
         initialCellsIndex = lastCellIndex,
-        gridState = rememberLazyGridState(cacheWindow = cacheWindow),
+        gridState = rememberLazyGridState(),
     )
 
     LaunchedEffect(pinchState.isZooming) {
@@ -150,7 +148,7 @@ fun TimelineMediaContent(
     var lastMosaicCellIndex by rememberMosaicGridSize()
     val mosaicPinchState = rememberMosaicPinchZoomState(
         initialColumnsIndex = lastMosaicCellIndex,
-        gridState = rememberLazyGridState(cacheWindow = cacheWindow),
+        gridState = rememberLazyGridState(),
     )
     val mosaicGridState = mosaicPinchState.gridState
     LaunchedEffect(mosaicPinchState.isZooming) {
