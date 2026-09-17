@@ -58,6 +58,7 @@ import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
+import com.dot.gallery.cloud.network.CloudTlsClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -141,6 +142,9 @@ class ImmichProvider @Inject constructor(
     override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     private var currentConfig: CloudServerConfig? = null
+    @Volatile private var tlsClient: CloudTlsClient? = null
+
+    override fun mediaHttpClient(base: OkHttpClient): OkHttpClient = tlsClient?.wrap(base) ?: base
     private var baseUrl: String = ""
     private var apiService: ImmichApiService? = null
     private val verifiedAssetIdsByHash = ConcurrentHashMap<String, String>()
@@ -155,6 +159,7 @@ class ImmichProvider @Inject constructor(
     override fun disconnect() {
         _connectionState.value = ConnectionState.DISCONNECTED
         currentConfig = null
+        tlsClient = null
         apiService = null
         authInterceptor.apiKey = null
         authInterceptor.accessToken = null
@@ -192,6 +197,7 @@ class ImmichProvider @Inject constructor(
 
     override fun configure(config: CloudServerConfig) {
         currentConfig = config
+        tlsClient = CloudTlsClient(context, config)
         verifiedAssetIdsByHash.clear()
         baseUrl = config.serverUrl.trimEnd('/')
         authInterceptor.apiKey = config.apiKey
@@ -226,7 +232,7 @@ class ImmichProvider @Inject constructor(
             applyInsecureTls(clientBuilder)
         }
 
-        val client = clientBuilder.build()
+        val client = tlsClient?.wrap(clientBuilder.build()) ?: clientBuilder.build()
 
         return Retrofit.Builder()
             .baseUrl(url)
@@ -246,6 +252,7 @@ class ImmichProvider @Inject constructor(
 
     private fun createIsolatedApiService(
         serverUrl: String,
+        config: CloudServerConfig,
         apiKey: String? = null,
         token: String? = null
     ): ImmichApiService {
@@ -264,7 +271,7 @@ class ImmichProvider @Inject constructor(
         }
         return Retrofit.Builder()
             .baseUrl(url)
-            .client(clientBuilder.build())
+            .client(CloudTlsClient(context, config).wrap(clientBuilder.build()))
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(ImmichApiService::class.java)
@@ -280,7 +287,7 @@ class ImmichProvider @Inject constructor(
             if (config.apiKey.isNullOrBlank() &&
                 !config.username.isNullOrBlank() && !config.password.isNullOrBlank()
             ) {
-                val loginApi = createIsolatedApiService(tempUrl)
+                val loginApi = createIsolatedApiService(tempUrl, config)
                 val loginResponse = loginApi.login(
                     ImmichLoginDto(email = config.username, password = config.password)
                 )
@@ -291,7 +298,7 @@ class ImmichProvider @Inject constructor(
                 }
                 token = loginResponse.body()?.accessToken
             }
-            val tempApi = createIsolatedApiService(tempUrl, apiKey = config.apiKey, token = token)
+            val tempApi = createIsolatedApiService(tempUrl, config, apiKey = config.apiKey, token = token)
             val response = tempApi.getServerAbout()
             if (response.isSuccessful) {
                 val about = response.body()!!
@@ -881,7 +888,7 @@ class ImmichProvider @Inject constructor(
             authHeaders.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
             val client = com.dot.gallery.cloud.image.CloudFetcherRegistryHolder.okHttpClient
                 ?: return Result.failure(Exception("OkHttpClient not initialized"))
-            client.newCall(requestBuilder.build()).execute().use { response ->
+            mediaHttpClient(client).newCall(requestBuilder.build()).execute().use { response ->
                 if (!response.isSuccessful) {
                     return@use Result.failure(Exception("Download failed: ${response.code}"))
                 }

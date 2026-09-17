@@ -96,7 +96,7 @@ class CloudGlideModelLoader : ModelLoader<Uri, InputStream> {
         val offlineKey = CloudMediaCache.keyFor(providerType, configId, remoteId, effectiveSize, typeParam)
         return ModelLoader.LoadData(
             ObjectKey(cacheKey),
-            CloudOkHttpFetcher(url, authHeaders, offlineKey)
+            CloudOkHttpFetcher(url, authHeaders, offlineKey, provider)
         )
     }
 
@@ -117,7 +117,8 @@ class CloudGlideModelLoader : ModelLoader<Uri, InputStream> {
 private class CloudOkHttpFetcher(
     private val url: String,
     private val authHeaders: Map<String, String>,
-    private val offlineKey: String
+    private val offlineKey: String,
+    private val provider: com.dot.gallery.cloud.core.capabilities.RemoteMediaProvider
 ) : DataFetcher<InputStream> {
 
     private var call: okhttp3.Call? = null
@@ -128,7 +129,7 @@ private class CloudOkHttpFetcher(
         authHeaders.forEach { (key, value) -> requestBuilder.addHeader(key, value) }
         requestBuilder.addHeader(CloudMediaCache.HEADER_KEY, offlineKey)
 
-        call = client.newCall(requestBuilder.build())
+        call = provider.mediaHttpClient(client).newCall(requestBuilder.build())
         try {
             CloudTrace.d("Glide.fetch -> GET $url")
             val start = System.nanoTime()

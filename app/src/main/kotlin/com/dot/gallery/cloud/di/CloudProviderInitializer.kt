@@ -335,8 +335,8 @@ class CloudProviderInitializer @Inject constructor(
      * enabled, so turning the feature OFF correctly reverts the provider to its external URL.
      * No-op when the effective URL is unchanged. Must run off the main thread.
      */
-    fun reconfigureAccountAsync(configId: Long) {
-        reconfigureScope.launch { reconfigureAccount(configId) }
+    fun reconfigureAccountAsync(configId: Long, force: Boolean = false) {
+        reconfigureScope.launch { reconfigureAccount(configId, force) }
     }
 
     suspend fun applyRestoredAccount(configId: Long) {

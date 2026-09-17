@@ -1,4 +1,11 @@
 <resources>
+    <string name="cloud_client_certificate">Client certificate</string>
+    <string name="cloud_client_certificate_none">None</string>
+    <string name="cloud_client_certificate_hint">Choose a client certificate installed in Android settings for this URL.</string>
+    <string name="cloud_client_certificate_select">Select certificate</string>
+    <string name="cloud_client_certificate_remove">Remove selection</string>
+    <string name="cloud_client_certificate_error">The certificate is unavailable or expired. Install a valid client certificate in Android settings and select it again.</string>
+    <string name="cloud_client_certificate_browser">Your browser may ask you to select the certificate separately when signing in.</string>
     <string name="app_name">ReFra</string>
     <string name="app_name_gallery">Gallery</string>
     <string name="smart_scan_notification_channel">Smart Scan</string>
@@ -1542,7 +1549,7 @@
     <string name="cloud_nextcloud_rate_limited">Too many sign-in attempts. Wait and try again.</string>
     <string name="cloud_nextcloud_server_error">Nextcloud could not start sign-in. Try again later.</string>
     <string name="cloud_nextcloud_network_error">The Nextcloud server could not be reached.</string>
-    <string name="cloud_nextcloud_tls_error">The secure connection to Nextcloud could not be verified.</string>
+    <string name="cloud_nextcloud_tls_error">The secure connection to Nextcloud failed. Check the server certificate and any selected client certificate.</string>
     <string name="cloud_nextcloud_invalid_response">Nextcloud returned an invalid sign-in response.</string>
     <string name="cloud_help_webdav">Enter the full WebDAV endpoint URL provided by your host, then your WebDAV username and password.</string>
     <string name="cloud_help_smb">Use smb://host/share/folder. Leave the username blank for guest access, or enter user / DOMAIN\\user and your password. The share must be on the same local network as this device. SMB2/3 is required (legacy SMB1 is not supported).</string>
@@ -2155,4 +2162,3 @@
     <string name="slideshow_previous">Previous</string>
     <string name="slideshow_exit">Exit slideshow</string>
 </resources>
-

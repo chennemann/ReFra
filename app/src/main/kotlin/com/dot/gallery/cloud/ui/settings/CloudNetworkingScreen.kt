@@ -51,6 +51,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dot.gallery.R
 import com.dot.gallery.cloud.ui.WifiSsidPickerSheet
+import com.dot.gallery.cloud.ui.ClientCertificatePreference
+import com.dot.gallery.cloud.network.ClientCertificates
 import com.dot.gallery.core.Position
 import com.dot.gallery.core.SettingsEntity
 import com.dot.gallery.feature_node.presentation.settings.components.BaseSettingsScreen
@@ -187,12 +189,25 @@ fun CloudNetworkingScreen(configId: Long) {
         title = stringResource(R.string.cloud_networking),
         settingsList = settingsList,
         topContent = {
-            NetworkingHeroCard(
-                effectiveUrl = effectiveUrl?.ifBlank { null } ?: serverUrl,
-                localActive = localActive,
-                autoUrlSwitch = autoUrlSwitch,
-                onToggleAuto = { settingsVm.updateConfig { copy(autoUrlSwitch = it) } }
-            )
+            Column {
+                NetworkingHeroCard(
+                    effectiveUrl = effectiveUrl?.ifBlank { null } ?: serverUrl,
+                    localActive = localActive,
+                    autoUrlSwitch = autoUrlSwitch,
+                    onToggleAuto = { settingsVm.updateConfig { copy(autoUrlSwitch = it) } }
+                )
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    (listOf(serverUrl, localUrl) + externalUrls).filter { it.isNotBlank() }.distinct().forEach { url ->
+                        androidx.compose.runtime.key(url) {
+                            ClientCertificatePreference(url, config!!.clientCertificates) { alias ->
+                                settingsVm.updateConfig {
+                                    copy(clientCertificates = ClientCertificates.set(clientCertificates, url, alias))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     )
 

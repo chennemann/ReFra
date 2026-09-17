@@ -28,7 +28,7 @@ class NextcloudLoginFlowClient(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun begin(serverUrl: String): InteractiveAuthSession {
+    suspend fun begin(serverUrl: String, transport: okhttp3.OkHttpClient = client): InteractiveAuthSession {
         val baseUrl = parseHttpUrl(serverUrl)
         val requestUrl = baseUrl.newBuilder()
             .addPathSegment("index.php")
@@ -41,7 +41,7 @@ class NextcloudLoginFlowClient(
             .header("User-Agent", userAgent)
             .build()
         return executeSafely {
-            client.newCall(request).execute().use { response ->
+            transport.newCall(request).execute().use { response ->
                 if (response.code == 404 || response.code == 405) {
                     throw InteractiveAuthException(
                         InteractiveAuthErrorKind.UNSUPPORTED,
@@ -66,7 +66,7 @@ class NextcloudLoginFlowClient(
         }
     }
 
-    suspend fun poll(session: InteractiveAuthSession): InteractiveAuthPollResult {
+    suspend fun poll(session: InteractiveAuthSession, transport: okhttp3.OkHttpClient = client): InteractiveAuthPollResult {
         if (nowMillis() >= session.expiresAtMillis) {
             throw InteractiveAuthException(InteractiveAuthErrorKind.EXPIRED, "Nextcloud login expired")
         }
@@ -77,7 +77,7 @@ class NextcloudLoginFlowClient(
             .header("User-Agent", userAgent)
             .build()
         return executeSafely {
-            client.newCall(request).execute().use { response ->
+            transport.newCall(request).execute().use { response ->
                 if (response.code == 404) return@use InteractiveAuthPollResult.Pending
                 throwForStatus(response.code)
                 val payload = decode<PollResponse>(response.body.string())
@@ -94,7 +94,7 @@ class NextcloudLoginFlowClient(
         }
     }
 
-    suspend fun revoke(serverUrl: String, username: String, appPassword: String): Result<Unit> = runCatching {
+    suspend fun revoke(serverUrl: String, username: String, appPassword: String, transport: okhttp3.OkHttpClient = client): Result<Unit> = runCatching {
         val baseUrl = parseHttpUrl(serverUrl)
         val requestUrl = baseUrl.newBuilder()
             .addPathSegment("ocs")
@@ -110,7 +110,7 @@ class NextcloudLoginFlowClient(
             .header("User-Agent", userAgent)
             .build()
         executeSafely {
-            client.newCall(request).execute().use { response ->
+            transport.newCall(request).execute().use { response ->
                 throwForStatus(response.code)
             }
         }

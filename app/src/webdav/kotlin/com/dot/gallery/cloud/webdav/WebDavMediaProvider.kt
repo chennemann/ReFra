@@ -33,6 +33,8 @@ import com.dot.gallery.cloud.webdav.data.api.WebDavClient
 import com.dot.gallery.cloud.webdav.data.api.WebDavException
 import com.dot.gallery.cloud.webdav.data.api.WebDavResource
 import com.dot.gallery.cloud.webdav.data.api.buildWebDavOkHttp
+import com.dot.gallery.cloud.network.CloudTlsClient
+import okhttp3.OkHttpClient
 import com.dot.gallery.core.Resource
 import com.dot.gallery.feature_node.domain.model.Media
 import com.dot.gallery.feature_node.domain.util.getUri
@@ -82,6 +84,9 @@ open class WebDavMediaProvider(
 
     private var currentConfig: CloudServerConfig? = null
     private var session: WebDavSession? = null
+    @Volatile private var tlsClient: CloudTlsClient? = null
+
+    override fun mediaHttpClient(base: OkHttpClient): OkHttpClient = tlsClient?.wrap(base) ?: base
     private val webDavClient: WebDavClient? get() = session?.webDavClient
     private val checksumMutex = Mutex()
     private val remoteChecksumCache = ConcurrentHashMap<String, CachedRemoteChecksum>()
@@ -108,16 +113,18 @@ open class WebDavMediaProvider(
         _connectionState.value = ConnectionState.DISCONNECTED
         currentConfig = null
         session = null
+        tlsClient = null
         remoteChecksumCache.clear()
     }
 
     override fun configure(config: CloudServerConfig) {
+        tlsClient = CloudTlsClient(context, config)
         currentConfig = config
         remoteChecksumCache.clear()
         val baseUrl = config.serverUrl.trimEnd('/')
         val username = config.username ?: ""
         val password = config.password ?: ""
-        val okHttp = buildWebDavOkHttp(60)
+        val okHttp = tlsClient!!.wrap(buildWebDavOkHttp(60))
         val client = WebDavClient(okHttp, baseUrl, username, password, dialect.filesEndpoint(username))
         session = WebDavSession(context, okHttp, baseUrl, username, password, config, client)
         printDebug("${dialect.displayName}Provider: Configured with server $baseUrl")
@@ -128,7 +135,7 @@ open class WebDavMediaProvider(
     override suspend fun testConnection(config: CloudServerConfig): Result<CloudServerInfo> =
         withContext(Dispatchers.IO) {
             try {
-                val okHttp = buildWebDavOkHttp(15)
+                val okHttp = CloudTlsClient(context, config).wrap(buildWebDavOkHttp(15))
                 val username = config.username ?: ""
                 val client = WebDavClient(
                     okHttp, config.serverUrl, username, config.password ?: "",

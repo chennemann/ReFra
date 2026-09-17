@@ -99,6 +99,8 @@ data class CloudServerConfig(
     val localWifiSsid: String = "",
     val localServerUrl: String = "",
     val externalUrls: String = "[]",
+    // Device-local KeyChain aliases. Intentionally excluded from portable configuration backups.
+    val clientCertificates: String = "{}",
     // Viewer settings
     val loadPreviewImage: Boolean = true,
     val loadOriginalImage: Boolean = false,

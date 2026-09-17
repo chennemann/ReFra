@@ -17,8 +17,12 @@ import com.dot.gallery.cloud.data.entity.CloudMediaEntity
 import com.dot.gallery.core.Resource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import okhttp3.OkHttpClient
 
 interface RemoteMediaProvider : MediaCapabilityProvider {
+    /** Apply this connection's TLS identity to the shared media transport. */
+    fun mediaHttpClient(base: OkHttpClient): OkHttpClient = base
+
     val connectionState: StateFlow<ConnectionState>
 
     suspend fun testConnection(config: CloudServerConfig): Result<CloudServerInfo>

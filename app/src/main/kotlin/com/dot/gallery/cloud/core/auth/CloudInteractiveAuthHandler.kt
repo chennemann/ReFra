@@ -8,6 +8,8 @@ interface CloudInteractiveAuthHandler {
 
     suspend fun begin(serverUrl: String): InteractiveAuthSession
 
+    suspend fun begin(config: CloudServerConfig): InteractiveAuthSession = begin(config.serverUrl)
+
     suspend fun poll(session: InteractiveAuthSession): InteractiveAuthPollResult
 
     suspend fun revoke(config: CloudServerConfig): Result<Unit>

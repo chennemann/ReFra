@@ -5,6 +5,9 @@
 
 package com.dot.gallery.cloud.ui
 
+import com.dot.gallery.cloud.network.ClientCertificates
+import kotlinx.serialization.json.Json
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
@@ -128,6 +131,8 @@ data class AddServerUiState(
     val autoUrlSwitch: Boolean = false,
     val localWifiSsid: String = "",
     val localServerUrl: String = "",
+    val externalUrls: String = "[]",
+    val clientCertificates: String = "{}",
     val isTesting: Boolean = false,
     val testResult: String? = null,
     val testSuccess: Boolean = false,
@@ -214,7 +219,7 @@ class CloudAccountsViewModel @Inject constructor(
         )
         interactiveAuthJob = viewModelScope.launch {
             try {
-                val session = handler.begin(state.serverUrl)
+                val session = handler.begin(buildConfig(state))
                 val event = BrowserLaunchEvent(++browserEventId, session.browserUrl)
                 _addServerState.value = _addServerState.value.copy(
                     authenticationState = CloudAuthenticationState.WaitingForBrowser,
@@ -232,6 +237,10 @@ class CloudAccountsViewModel @Inject constructor(
                             val credentials = result.credentials
                             val authenticatedState = _addServerState.value.copy(
                                 serverUrl = credentials.serverUrl,
+                                clientCertificates = ClientCertificates.set(
+                                    state.clientCertificates, credentials.serverUrl,
+                                    ClientCertificates.alias(state.clientCertificates, state.serverUrl)
+                                ),
                                 username = credentials.username,
                                 password = credentials.password,
                                 authenticationState = CloudAuthenticationState.Verifying,
@@ -334,6 +343,8 @@ class CloudAccountsViewModel @Inject constructor(
                     autoUrlSwitch = entity.autoUrlSwitch,
                     localWifiSsid = entity.localWifiSsid,
                     localServerUrl = entity.localServerUrl,
+                    externalUrls = entity.externalUrls,
+                    clientCertificates = entity.clientCertificates,
                     savedConfigId = entity.id
                 )
             }
@@ -343,6 +354,17 @@ class CloudAccountsViewModel @Inject constructor(
     fun updateServerUrl(url: String) {
         invalidateVerification()
         _addServerState.value = _addServerState.value.copy(serverUrl = url)
+    }
+
+    fun updateClientCertificate(url: String, alias: String?) {
+        val state = _addServerState.value
+        val urls = listOf(state.serverUrl, state.localServerUrl) +
+            Json.decodeFromString<List<String>>(state.externalUrls)
+        if (url !in urls) return
+        invalidateVerification()
+        _addServerState.value = _addServerState.value.copy(
+            clientCertificates = ClientCertificates.set(state.clientCertificates, url, alias)
+        )
     }
 
     fun updateApiKey(key: String) {
@@ -440,6 +462,7 @@ class CloudAccountsViewModel @Inject constructor(
         state.apiKey,
         state.username,
         state.password,
+        state.clientCertificates,
         state.autoUrlSwitch.toString(),
         state.localWifiSsid.trim(),
         state.localServerUrl.trim().trimEnd('/')
@@ -703,7 +726,9 @@ class CloudAccountsViewModel @Inject constructor(
         wifiOnly = state.wifiOnly,
         autoUrlSwitch = state.autoUrlSwitch,
         localWifiSsid = state.localWifiSsid.trim(),
-        localServerUrl = state.localServerUrl.trim().trimEnd('/')
+        localServerUrl = state.localServerUrl.trim().trimEnd('/'),
+        externalUrls = state.externalUrls,
+        clientCertificates = state.clientCertificates
     )
 }
 
@@ -718,6 +743,10 @@ internal fun mergeCloudServerConfig(
     val displayName = state.displayName.ifBlank { "${state.providerType.displayName} Server" }
     val serverUrl = state.serverUrl.trimEnd('/')
     val localServerUrl = state.localServerUrl.trim().trimEnd('/')
+    val clientCertificates = ClientCertificates.retain(
+        state.clientCertificates,
+        listOf(serverUrl, localServerUrl) + Json.decodeFromString<List<String>>(state.externalUrls)
+    )
     return oldEntity?.copy(
         providerType = state.providerType,
         serverUrl = serverUrl,
@@ -730,7 +759,8 @@ internal fun mergeCloudServerConfig(
         wifiOnly = state.wifiOnly,
         autoUrlSwitch = state.autoUrlSwitch,
         localWifiSsid = state.localWifiSsid.trim(),
-        localServerUrl = localServerUrl
+        localServerUrl = localServerUrl,
+        clientCertificates = clientCertificates
     ) ?: CloudServerConfigEntity(
         id = state.savedConfigId ?: 0L,
         providerType = state.providerType,
@@ -744,6 +774,8 @@ internal fun mergeCloudServerConfig(
         wifiOnly = state.wifiOnly,
         autoUrlSwitch = state.autoUrlSwitch,
         localWifiSsid = state.localWifiSsid.trim(),
-        localServerUrl = localServerUrl
+        localServerUrl = localServerUrl,
+        externalUrls = state.externalUrls,
+        clientCertificates = clientCertificates
     )
 }

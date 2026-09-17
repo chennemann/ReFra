@@ -602,6 +602,7 @@ dependencies {
     // Tests
     testImplementation(libs.junit)
     testImplementation(libs.mockwebserver)
+    testImplementation("com.squareup.okhttp3:okhttp-tls:${libs.versions.okhttp.get()}")
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.espresso.core)
