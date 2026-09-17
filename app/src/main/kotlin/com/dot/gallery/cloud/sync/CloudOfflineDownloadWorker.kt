@@ -169,7 +169,7 @@ class CloudOfflineDownloadWorker @AssistedInject constructor(
         } else {
             val builder = Request.Builder().url(url)
             authHeaders.forEach { (k, v) -> builder.addHeader(k, v) }
-            client.newCall(builder.build()).execute().use { response ->
+            provider.mediaHttpClient(client).newCall(builder.build()).execute().use { response ->
                 if (!response.isSuccessful) {
                     return@use DownloadOutcome.Failure(
                         message = "HTTP ${response.code}: ${response.message}",

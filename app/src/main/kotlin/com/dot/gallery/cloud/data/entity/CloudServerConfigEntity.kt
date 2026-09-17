@@ -45,6 +45,7 @@ data class CloudServerConfigEntity(
     @ColumnInfo(defaultValue = "") val localWifiSsid: String = "",
     @ColumnInfo(defaultValue = "") val localServerUrl: String = "",
     @ColumnInfo(defaultValue = "[]") val externalUrls: String = "[]",
+    @ColumnInfo(defaultValue = "{}") val clientCertificates: String = "{}",
     // Viewer settings (Phase 12)
     @ColumnInfo(defaultValue = "1") val loadPreviewImage: Boolean = true,
     @ColumnInfo(defaultValue = "0") val loadOriginalImage: Boolean = false,
@@ -81,6 +82,7 @@ data class CloudServerConfigEntity(
         localWifiSsid = localWifiSsid,
         localServerUrl = localServerUrl,
         externalUrls = externalUrls,
+        clientCertificates = clientCertificates,
         loadPreviewImage = loadPreviewImage,
         loadOriginalImage = loadOriginalImage,
         autoPlayVideos = autoPlayVideos,
@@ -118,6 +120,7 @@ data class CloudServerConfigEntity(
                 localWifiSsid = config.localWifiSsid,
                 localServerUrl = config.localServerUrl,
                 externalUrls = config.externalUrls,
+                clientCertificates = config.clientCertificates,
                 loadPreviewImage = config.loadPreviewImage,
                 loadOriginalImage = config.loadOriginalImage,
                 autoPlayVideos = config.autoPlayVideos,

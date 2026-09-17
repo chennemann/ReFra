@@ -1795,7 +1795,7 @@
     <string name="cloud_nextcloud_rate_limited">Too many sign-in attempts. Wait and try again.</string>
     <string name="cloud_nextcloud_server_error">Nextcloud could not start sign-in. Try again later.</string>
     <string name="cloud_nextcloud_network_error">The Nextcloud server could not be reached.</string>
-    <string name="cloud_nextcloud_tls_error">The secure connection to Nextcloud could not be verified.</string>
+    <string name="cloud_nextcloud_tls_error">The secure connection to Nextcloud failed. Check the server certificate and any selected client certificate.</string>
     <string name="cloud_nextcloud_invalid_response">Nextcloud returned an invalid sign-in response.</string>
     <string name="cloud_help_webdav">Enter the full WebDAV endpoint URL provided by your host, then your WebDAV username and password.</string>
     <string name="cloud_help_smb">Use smb://host/share/folder. Leave the username blank for guest access, or enter user / DOMAIN\\user and your password. The share must be on the same local network as this device. SMB2/3 is required (legacy SMB1 is not supported).</string>

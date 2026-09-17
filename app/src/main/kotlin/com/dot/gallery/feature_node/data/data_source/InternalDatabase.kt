@@ -103,9 +103,10 @@ import com.dot.gallery.feature_node.domain.util.Converters
         SmartScanPhaseEntity::class,
         MediaFeatureStateEntity::class
     ],
-    version = 45,
+    version = 46,
     exportSchema = true,
     autoMigrations = [
+        AutoMigration(from = 45, to = 46), // Per-URL, device-local client certificate aliases
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
         AutoMigration(from = 3, to = 4),

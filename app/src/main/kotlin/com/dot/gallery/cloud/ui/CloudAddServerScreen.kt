@@ -83,6 +83,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dot.gallery.R
 import com.dot.gallery.cloud.core.ProviderType
+import com.dot.gallery.cloud.network.ClientCertificates
+import kotlinx.serialization.json.Json
+import androidx.compose.runtime.key
 import com.dot.gallery.cloud.core.auth.InteractiveAuthErrorKind
 import com.dot.gallery.cloud.ui.descriptor.CredentialField
 import com.dot.gallery.cloud.ui.descriptor.CredentialFieldKind
@@ -148,8 +151,8 @@ fun CloudAddServerScreen(
     val steps = remember(isEditMode) {
         buildList {
             add(WizardStep.SERVER)
-            add(WizardStep.CREDENTIALS)
             add(WizardStep.NETWORKING)
+            add(WizardStep.CREDENTIALS)
             if (!isEditMode) add(WizardStep.SYNC)
             add(WizardStep.REVIEW)
         }
@@ -378,6 +381,9 @@ private fun ServerStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+    ClientCertificatePreference(state.serverUrl, state.clientCertificates) {
+        viewModel.updateClientCertificate(state.serverUrl, it)
+    }
     descriptor.setupHintRes?.let { hintRes ->
         Spacer(Modifier.height(8.dp))
         SetupHelpCard(hintText = stringResource(hintRes))
@@ -468,6 +474,9 @@ private fun CredentialsStep(
     }
 
     if (supportsInteractiveAuth) {
+        if (ClientCertificates.alias(state.clientCertificates, state.serverUrl) != null) {
+            Text(stringResource(R.string.cloud_client_certificate_browser), style = MaterialTheme.typography.bodySmall)
+        }
         Spacer(Modifier.height(16.dp))
         val authBusy = authState is CloudAuthenticationState.Starting ||
             authState is CloudAuthenticationState.WaitingForBrowser ||
@@ -701,6 +710,9 @@ private fun NetworkingStep(
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
             )
+            ClientCertificatePreference(state.localServerUrl, state.clientCertificates) {
+                viewModel.updateClientCertificate(state.localServerUrl, it)
+            }
             // Clickable field that opens the SSID picker sheet (blank = switching disabled).
             Column(
                 modifier = frostedFieldModifier()
@@ -727,6 +739,11 @@ private fun NetworkingStep(
         currentSsid = state.localWifiSsid,
         onSave = viewModel::updateLocalWifiSsid
     )
+    Json.decodeFromString<List<String>>(state.externalUrls).forEach { url ->
+        key(url) {
+            ClientCertificatePreference(url, state.clientCertificates) { viewModel.updateClientCertificate(url, it) }
+        }
+    }
 }
 
 /** Final stage: choose the local folders whose media will be uploaded to this account. */

@@ -1,6 +1,7 @@
 package com.dot.gallery.cloud.core.auth
 
 import com.dot.gallery.cloud.core.ProviderType
+import com.dot.gallery.cloud.core.CloudServerConfig
 
 data class InteractiveAuthSession(
     val providerType: ProviderType,
@@ -8,7 +9,8 @@ data class InteractiveAuthSession(
     val pollEndpoint: String,
     val token: String,
     val trustedOrigin: String,
-    val expiresAtMillis: Long
+    val expiresAtMillis: Long,
+    val connectionConfig: CloudServerConfig? = null
 )
 
 data class InteractiveAuthCredentials(

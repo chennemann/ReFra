@@ -78,7 +78,7 @@ class CloudDataSource private constructor(
             requestBuilder.addHeader("Range", "bytes=${dataSpec.position}-")
         }
 
-        val call = client.newCall(requestBuilder.build())
+        val call = provider.mediaHttpClient(client).newCall(requestBuilder.build())
         activeCall = call
         CloudTrace.d("Video[$providerType] '$remoteId' -> GET $url (pos=${dataSpec.position})")
         val response = CloudTrace.time("Video[$providerType] '$remoteId' open") {

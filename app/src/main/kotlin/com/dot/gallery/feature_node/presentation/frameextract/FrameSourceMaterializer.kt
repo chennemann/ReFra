@@ -143,7 +143,7 @@ class FrameSourceMaterializer @Inject constructor(
                 .build()
             val client = CloudFetcherRegistryHolder.okHttpClient
                 ?: throw FrameSourceException("Cloud networking is unavailable", retryable = true)
-            client.newCall(request).execute().use { response ->
+            provider.mediaHttpClient(client).newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     throw FrameSourceException(
                         "Cloud download failed (${response.code})",

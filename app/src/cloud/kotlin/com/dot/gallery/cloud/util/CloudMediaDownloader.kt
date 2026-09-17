@@ -33,7 +33,7 @@ object CloudMediaDownloader {
             CloudMediaCache.keyFor(providerType, configId, remoteId, "original")
         )
         val client = CloudFetcherRegistryHolder.okHttpClient ?: return null
-        val response = client.newCall(requestBuilder.build()).execute()
+        val response = provider.mediaHttpClient(client).newCall(requestBuilder.build()).execute()
         if (!response.isSuccessful) {
             response.close()
             return null

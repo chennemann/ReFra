@@ -182,7 +182,7 @@ class CloudImageSource private constructor(
                 CloudTrace.d("ZoomSource[$providerType] original '$remoteId' -> GET $url")
                 val start = System.nanoTime()
                 try {
-                    downloadToFile(client.newCall(requestBuilder.build()), temporaryFile)
+                    downloadToFile(provider.mediaHttpClient(client).newCall(requestBuilder.build()), temporaryFile)
                     CloudTrace.d(
                         "ZoomSource[$providerType] original '$remoteId' download took " +
                             "${(System.nanoTime() - start) / 1_000_000}ms"

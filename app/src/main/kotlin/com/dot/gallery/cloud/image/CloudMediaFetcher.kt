@@ -98,7 +98,7 @@ class CloudMediaFetcher private constructor(
 
             CloudTrace.d("Sketch.fetch[$providerType] $sizeParam '$remoteId' -> GET $url")
             val response = CloudTrace.time("Sketch.fetch[$providerType] $sizeParam '$remoteId' HTTP") {
-                client.newCall(requestBuilder.build()).execute()
+                provider.mediaHttpClient(client).newCall(requestBuilder.build()).execute()
             }
             response.use {
                 if (!it.isSuccessful) {

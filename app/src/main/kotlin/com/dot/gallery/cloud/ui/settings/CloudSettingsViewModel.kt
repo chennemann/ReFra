@@ -14,6 +14,8 @@ import com.dot.gallery.cloud.data.dao.CloudServerConfigDao
 import com.dot.gallery.cloud.data.entity.CloudServerConfigEntity
 import com.dot.gallery.cloud.di.CloudProviderInitializer
 import com.dot.gallery.cloud.network.ServerUrlResolver
+import com.dot.gallery.cloud.network.ClientCertificates
+import kotlinx.serialization.json.Json
 import com.dot.gallery.cloud.offline.CloudMediaCache
 import com.dot.gallery.cloud.sync.CloudSyncScheduler
 import com.dot.gallery.cloud.sync.cloudSyncScheduleChanged
@@ -98,7 +100,14 @@ class CloudSettingsViewModel @Inject constructor(
     fun updateConfig(transform: CloudServerConfigEntity.() -> CloudServerConfigEntity) {
         val current = _config.value ?: return
         val targets = globalConfigs.ifEmpty { listOf(current) }
-        val updates = targets.map { it to it.transform() }
+        val updates = targets.map { before ->
+            val after = before.transform()
+            before to after.copy(clientCertificates = ClientCertificates.retain(
+                after.clientCertificates,
+                listOf(after.serverUrl, after.localServerUrl) +
+                    Json.decodeFromString<List<String>>(after.externalUrls)
+            ))
+        }
         val updated = updates.first().second
         _config.value = updated
         if (globalConfigs.isNotEmpty()) globalConfigs = updates.map { it.second }
@@ -106,11 +115,11 @@ class CloudSettingsViewModel @Inject constructor(
             CloudRuntimeSettings.apply(after.toCloudServerConfig())
         }
         viewModelScope.launch {
-            updates.forEach { (_, after) ->
+            updates.forEach { (before, after) ->
                 configDao.update(after)
                 // Re-apply the effective URL to each live provider so networking changes take
                 // effect immediately. This is a no-op for unrelated settings.
-                providerInitializer.reconfigureAccountAsync(after.id)
+                providerInitializer.reconfigureAccountAsync(after.id, force = before.clientCertificates != after.clientCertificates)
             }
             if (updates.any { (before, after) -> cloudSyncScheduleChanged(before, after) }) {
                 syncScheduler.reconcile()

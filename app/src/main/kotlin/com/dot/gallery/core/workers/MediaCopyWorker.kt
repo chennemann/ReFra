@@ -251,7 +251,7 @@ class MediaCopyWorker @AssistedInject constructor(
         val requestBuilder = Request.Builder().url(url).get()
         authHeaders.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
         val client = CloudFetcherRegistryHolder.okHttpClient ?: return null
-        val response = client.newCall(requestBuilder.build()).execute()
+        val response = provider.mediaHttpClient(client).newCall(requestBuilder.build()).execute()
         if (!response.isSuccessful) {
             response.close()
             return null
@@ -259,4 +259,3 @@ class MediaCopyWorker @AssistedInject constructor(
         return response.body.byteStream()
     }
 }
-

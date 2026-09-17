@@ -35,8 +35,9 @@ object NextcloudModule {
     @Singleton
     @IntoSet
     fun provideNextcloudInteractiveAuthHandler(
-        client: NextcloudLoginFlowClient
-    ): CloudInteractiveAuthHandler = NextcloudInteractiveAuthHandler(client)
+        client: NextcloudLoginFlowClient,
+        @ApplicationContext context: Context
+    ): CloudInteractiveAuthHandler = NextcloudInteractiveAuthHandler(client, context)
 
     @Provides
     @Singleton
